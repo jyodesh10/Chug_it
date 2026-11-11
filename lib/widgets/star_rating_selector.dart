@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:sizer/sizer.dart';
 
 class StarRatingSelector extends StatelessWidget {
   final int rating;
@@ -26,7 +27,7 @@ class StarRatingSelector extends StatelessWidget {
             padding: const EdgeInsets.only(right: 6),
             child: Icon(
               isFilled ? Icons.star_rounded : Icons.star_outline_rounded,
-              size: 28,
+              size: 25.sp,
               color: isFilled ? const Color(0xFFE7C35A) : const Color(0xFF8A8F98),
             ),
           ),

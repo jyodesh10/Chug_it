@@ -6,4 +6,5 @@ class AppRoutes {
   static const addDrink = '/add-drink';
   static const newDrink = '/new-drink';
   static const reviewDrink = '/review-drink';
+  static const drinkDetail = '/drink-detail';
 }

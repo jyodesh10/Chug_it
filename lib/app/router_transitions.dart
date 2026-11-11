@@ -1,13 +1,18 @@
-import 'package:flutter/material.dart';
+import 'package:flutter/cupertino.dart';
+import 'package:flutter/foundation.dart';
 import 'package:go_router/go_router.dart';
 
-CustomTransitionPage<T> slideFromRightTransition<T>({
+Page<T> slideFromRightTransition<T>({
   required LocalKey key,
   required Widget child,
   Duration duration = const Duration(milliseconds: 350),
   Duration reverseDuration = const Duration(milliseconds: 250),
   Curve curve = Curves.easeOutCubic,
 }) {
+  if (defaultTargetPlatform == TargetPlatform.iOS) {
+    return CupertinoPage<T>(key: key, child: child);
+  }
+
   return CustomTransitionPage<T>(
     key: key,
     child: child,

@@ -1,7 +1,12 @@
+import 'dart:convert';
+
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
-
-import '../../app/app_routes.dart';
+import 'package:jhyapp/app/app_routes.dart';
+import 'package:jhyapp/constants/textstyle.dart';
+import 'package:jhyapp/models/drink_catalog_item.dart';
+import 'package:jhyapp/services/drink_service.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 class AddDrinkView extends StatefulWidget {
   const AddDrinkView({super.key});
@@ -11,26 +16,173 @@ class AddDrinkView extends StatefulWidget {
 }
 
 class _AddDrinkViewState extends State<AddDrinkView> {
-  final List<BeerResult> _matchingBeers = const [
-    BeerResult(
-      name: 'Octoberfest (2026)',
-      brewery: 'Sierra Nevada Brewing Co.',
-      colors: [
-        Color(0xFF7C2D16),
-        Color(0xFFD97706),
-        Color(0xFFF59E0B),
-      ],
-    ),
-    BeerResult(
-      name: 'Premium Pils',
-      brewery: 'Sierra Nevada Brewing Co.',
-      colors: [
-        Color(0xFF7C2D12),
-        Color(0xFFF59E0B),
-        Color(0xFFFDE68A),
-      ],
-    ),
-  ];
+  static const _recentlySelectedKey = 'add_drink_recently_selected';
+  static const _maxRecentlySelected = 8;
+
+  final TextEditingController _searchController = TextEditingController();
+  List<DrinkCatalogItem> _results = [];
+  List<DrinkCatalogItem> _recentlySelected = [];
+  late Future<void> _recentlySelectedLoaded;
+  bool _isSearching = false;
+  String? _submittedSearchTerm;
+  String? _searchError;
+
+  @override
+  void initState() {
+    super.initState();
+    _recentlySelectedLoaded = _loadRecentlySelected();
+  }
+
+  Future<void> _loadRecentlySelected() async {
+    try {
+      final preferences = await SharedPreferences.getInstance();
+      final savedDrinks =
+          preferences.getStringList(_recentlySelectedKey) ?? const [];
+      final drinks = savedDrinks
+          .map(
+            (savedDrink) => DrinkCatalogItem.fromMap(
+              Map<String, dynamic>.from(jsonDecode(savedDrink) as Map),
+            ),
+          )
+          .toList();
+      if (!mounted) return;
+      setState(() {
+        _recentlySelected = drinks.take(_maxRecentlySelected).toList();
+      });
+    } catch (error) {
+      if (mounted) _showStorageError(error);
+    }
+  }
+
+  Future<void> _saveRecentlySelected() async {
+    try {
+      final preferences = await SharedPreferences.getInstance();
+      await preferences.setStringList(
+        _recentlySelectedKey,
+        _recentlySelected
+            .map(
+              (drink) => jsonEncode({
+                'type': drink.type,
+                'name': drink.name,
+                'brand': drink.brand,
+                'barcode': drink.barcode,
+                'category': drink.category,
+                'abv': drink.abv,
+              }),
+            )
+            .toList(),
+      );
+    } catch (error) {
+      if (mounted) _showStorageError(error);
+    }
+  }
+
+  void _showStorageError(Object error) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text('Unable to update recently selected drinks: $error'),
+      ),
+    );
+  }
+
+  Future<void> _recordRecentlySelected(DrinkCatalogItem drink) async {
+    await _recentlySelectedLoaded;
+    if (!mounted) return;
+    final drinkKey = _drinkKey(drink);
+    final updatedDrinks = [
+      drink,
+      ..._recentlySelected.where((selected) => _drinkKey(selected) != drinkKey),
+    ].take(_maxRecentlySelected).toList();
+    setState(() {
+      _recentlySelected = updatedDrinks;
+    });
+    await _saveRecentlySelected();
+  }
+
+  String _drinkKey(DrinkCatalogItem drink) =>
+      '${drink.type.toLowerCase()}|'
+      '${drink.name.trim().toLowerCase()}|'
+      '${drink.brand.trim().toLowerCase()}';
+
+  Future<void> _removeRecentlySelected(DrinkCatalogItem drink) async {
+    await _recentlySelectedLoaded;
+    if (!mounted) return;
+    setState(() {
+      _recentlySelected.removeWhere(
+        (selected) => _drinkKey(selected) == _drinkKey(drink),
+      );
+    });
+    await _saveRecentlySelected();
+  }
+
+  Future<void> _clearRecentlySelected() async {
+    await _recentlySelectedLoaded;
+    if (!mounted) return;
+    setState(() {
+      _recentlySelected = [];
+    });
+    await _saveRecentlySelected();
+  }
+
+  void _onSearchChanged(String value) {
+    setState(() {
+      _submittedSearchTerm = null;
+      _results = [];
+      _searchError = null;
+      _isSearching = false;
+    });
+  }
+
+  void _onSearchSubmitted(String value) {
+    final term = value.trim();
+    setState(() {
+      _submittedSearchTerm = term;
+      _results = [];
+      _searchError = null;
+      _isSearching = term.isNotEmpty;
+    });
+    if (term.isNotEmpty) {
+      _searchCatalog(term);
+    }
+  }
+
+  Future<void> _searchCatalog(String term) async {
+    try {
+      final results = await DrinkService.searchDrinkCatalog(term);
+      if (!mounted ||
+          _searchController.text.trim() != term ||
+          _submittedSearchTerm != term) {
+        return;
+      }
+      setState(() {
+        _results = results;
+        _isSearching = false;
+      });
+    } catch (error) {
+      if (!mounted ||
+          _searchController.text.trim() != term ||
+          _submittedSearchTerm != term) {
+        return;
+      }
+      setState(() {
+        _searchError = error.toString().replaceFirst('Exception: ', '');
+        _results = [];
+        _isSearching = false;
+      });
+    }
+  }
+
+  Future<void> _selectDrink(DrinkCatalogItem drink) async {
+    await _recordRecentlySelected(drink);
+    if (!mounted) return;
+    context.push(AppRoutes.newDrink, extra: drink);
+  }
+
+  @override
+  void dispose() {
+    _searchController.dispose();
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -43,13 +195,11 @@ class _AddDrinkViewState extends State<AddDrinkView> {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               const SizedBox(height: 26),
-              const Text(
+              Text(
                 'Add new drink',
-                style: TextStyle(
-                  color: Color(0xFFF5F7FA),
-                  fontSize: 30,
-                  fontWeight: FontWeight.w800,
-                  letterSpacing: -0.8,
+                style: headingStyle.copyWith(
+                  fontWeight: FontWeight.w700,
+                  letterSpacing: -0.5,
                 ),
               ),
               const SizedBox(height: 20),
@@ -59,53 +209,149 @@ class _AddDrinkViewState extends State<AddDrinkView> {
                   color: const Color(0xFF2B2D31),
                   borderRadius: BorderRadius.circular(18),
                 ),
-                child: const Padding(
-                  padding: EdgeInsets.symmetric(horizontal: 16),
-                  child: Row(
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 16),
+                  child: Stack(
+                    alignment: Alignment.center,
                     children: [
-                      Icon(
-                        Icons.search,
-                        color: Color(0xFF9AA3AF),
-                        size: 28,
-                      ),
-                      SizedBox(width: 10),
-                      Expanded(
+                      Positioned.fill(
                         child: TextField(
-                          enabled: false,
+                          controller: _searchController,
+                          onChanged: _onSearchChanged,
+                          onSubmitted: _onSearchSubmitted,
+                          textInputAction: TextInputAction.search,
+                          style: titleStyle,
                           decoration: InputDecoration(
                             border: InputBorder.none,
-                            hintText: 'Search beers, breweries...',
-                            hintStyle: TextStyle(
-                              color: Color(0xFF8F96A0),
-                              fontSize: 18,
-                              fontWeight: FontWeight.w400,
+                            hintText: 'Search name, brand...',
+                            hintStyle: subtitleStyle.copyWith(
+                              color: const Color(0xFF8F96A0),
                             ),
-                            contentPadding: EdgeInsets.zero,
+                            contentPadding: const EdgeInsets.symmetric(
+                              horizontal: 36,
+                            ),
                           ),
                         ),
                       ),
+                      const Positioned(
+                        left: 0,
+                        child: Icon(Icons.search, color: Color(0xFF9AA3AF)),
+                      ),
+                      if (_searchController.text.isNotEmpty)
+                        Positioned(
+                          right: -12,
+                          child: IconButton(
+                            onPressed: () {
+                              _searchController.clear();
+                              _onSearchChanged('');
+                            },
+                            icon: const Icon(Icons.close),
+                          ),
+                        ),
                     ],
                   ),
                 ),
               ),
               const SizedBox(height: 26),
-              const Text(
-                'Matching beers',
-                style: TextStyle(
-                  color: Color(0xFFF5F7FA),
-                  fontSize: 24,
-                  fontWeight: FontWeight.w700,
-                  letterSpacing: -0.5,
-                ),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Text(
+                    _searchController.text.trim().isEmpty &&
+                            _recentlySelected.isNotEmpty
+                        ? 'Recently selected'
+                        : 'Drink catalog',
+                    style: subheadingStyle.copyWith(letterSpacing: -0.3),
+                  ),
+                  if (_searchController.text.trim().isEmpty &&
+                      _recentlySelected.isNotEmpty)
+                    TextButton(
+                      onPressed: _clearRecentlySelected,
+                      child: Text(
+                        'Clear',
+                        style: subtitleStyle.copyWith(
+                          color: const Color(0xFF7DB9FF),
+                        ),
+                      ),
+                    ),
+                ],
               ),
               const SizedBox(height: 12),
-              ..._matchingBeers.map(
-                (beer) => Padding(
-                  padding: const EdgeInsets.only(bottom: 14),
-                  child: BeerResultTile(beer: beer),
-                ),
+              Expanded(
+                child: _isSearching
+                    ? const Center(child: CircularProgressIndicator())
+                    : _searchError != null
+                    ? Center(
+                        child: Text(
+                          _searchError!,
+                          style: subtitleStyle,
+                          textAlign: TextAlign.center,
+                        ),
+                      )
+                    : _searchController.text.trim().isEmpty
+                    ? _recentlySelected.isEmpty
+                          ? Center(
+                              child: Text(
+                                'Search by drink name or brand.',
+                                style: subtitleStyle,
+                              ),
+                            )
+                          : ListView.separated(
+                              padding: EdgeInsets.zero,
+                              itemCount: _recentlySelected.length,
+                              separatorBuilder: (context, index) =>
+                                  const SizedBox(height: 8),
+                              itemBuilder: (context, index) {
+                                final drink = _recentlySelected[index];
+                                return Row(
+                                  children: [
+                                    Expanded(
+                                      child: _CatalogResultTile(
+                                        drink: drink,
+                                        onTap: () => _selectDrink(drink),
+                                      ),
+                                    ),
+                                    IconButton(
+                                      tooltip: 'Remove recently selected drink',
+                                      onPressed: () =>
+                                          _removeRecentlySelected(drink),
+                                      icon: const Icon(
+                                        Icons.close,
+                                        color: Color(0xFF9DA4AD),
+                                      ),
+                                    ),
+                                  ],
+                                );
+                              },
+                            )
+                    : _submittedSearchTerm != _searchController.text.trim()
+                    ? Center(
+                        child: Text(
+                          'Press search to find drinks.',
+                          style: subtitleStyle,
+                          textAlign: TextAlign.center,
+                        ),
+                      )
+                    : _results.isEmpty
+                    ? Center(
+                        child: Text(
+                          'No matching drinks found. You can add it below.',
+                          style: subtitleStyle,
+                          textAlign: TextAlign.center,
+                        ),
+                      )
+                    : ListView.separated(
+                        padding: EdgeInsets.zero,
+                        itemCount: _results.length,
+                        separatorBuilder: (context, index) =>
+                            const SizedBox(height: 12),
+                        itemBuilder: (context, index) => _CatalogResultTile(
+                          drink: _results[index],
+                          onTap: () => _selectDrink(_results[index]),
+                        ),
+                      ),
               ),
-              const SizedBox(height: 20),
+              const SizedBox(height: 14),
               CustomPaint(
                 painter: DashedBorderPainter(
                   color: const Color(0xFF7A808B),
@@ -123,18 +369,17 @@ class _AddDrinkViewState extends State<AddDrinkView> {
                       child: Center(
                         child: Row(
                           mainAxisAlignment: MainAxisAlignment.center,
-                          children: const [
-                            Icon(
+                          children: [
+                            const Icon(
                               Icons.add,
                               color: Color(0xFF7DB9FF),
                               size: 20,
                             ),
-                            SizedBox(width: 8),
+                            const SizedBox(width: 8),
                             Text(
-                              "Can't find it? Add new beer",
-                              style: TextStyle(
-                                color: Color(0xFF7DB9FF),
-                                fontSize: 18,
+                              "Can't find it? Add new drink",
+                              style: titleStyle.copyWith(
+                                color: const Color(0xFF7DB9FF),
                                 fontWeight: FontWeight.w500,
                               ),
                             ),
@@ -153,137 +398,72 @@ class _AddDrinkViewState extends State<AddDrinkView> {
   }
 }
 
-class BeerResult {
-  final String name;
-  final String brewery;
-  final List<Color> colors;
+class _CatalogResultTile extends StatelessWidget {
+  final DrinkCatalogItem drink;
+  final VoidCallback onTap;
 
-  const BeerResult({
-    required this.name,
-    required this.brewery,
-    required this.colors,
-  });
-}
-
-class BeerResultTile extends StatelessWidget {
-  final BeerResult beer;
-
-  const BeerResultTile({super.key, required this.beer});
+  const _CatalogResultTile({required this.drink, required this.onTap});
 
   @override
   Widget build(BuildContext context) {
-    return Row(
-      crossAxisAlignment: CrossAxisAlignment.center,
-      children: [
-        Container(
-          width: 52,
-          height: 52,
-          decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(12),
-            boxShadow: [
-              BoxShadow(
-                color: Colors.black.withValues(alpha: 0.18),
-                blurRadius: 6,
-                offset: const Offset(0, 2),
-              ),
-            ],
-          ),
-          child: ClipRRect(
-            borderRadius: BorderRadius.circular(12),
-            child: CustomPaint(
-              painter: BeerCanPainter(beer.colors),
-              child: const SizedBox.expand(),
-            ),
-          ),
-        ),
-        const SizedBox(width: 12),
-        Expanded(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
+    return Material(
+      color: const Color(0xFF1F2227),
+      borderRadius: BorderRadius.circular(14),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(14),
+        onTap: onTap,
+        child: Padding(
+          padding: const EdgeInsets.all(12),
+          child: Row(
             children: [
-              Text(
-                beer.name,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: const TextStyle(
-                  color: Color(0xFFE9EDF1),
-                  fontSize: 17,
-                  fontWeight: FontWeight.w600,
+              Container(
+                width: 48,
+                height: 48,
+                decoration: BoxDecoration(
+                  color: const Color(0xFF2B3440),
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: Icon(switch (drink.type) {
+                  'wine' => Icons.wine_bar_outlined,
+                  'spirit' => Icons.liquor_outlined,
+                  _ => Icons.sports_bar_outlined,
+                }, color: const Color(0xFF7DB9FF)),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      drink.name,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: titleStyle.copyWith(fontWeight: FontWeight.w600),
+                    ),
+                    const SizedBox(height: 3),
+                    Text(
+                      '${drink.brand} · ${drink.category}',
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: subtitleStyle.copyWith(
+                        color: const Color(0xFF9DA4AD),
+                      ),
+                    ),
+                    const SizedBox(height: 3),
+                    Text(
+                      drink.abv > 0 ? '${drink.abv}% ABV' : 'ABV not listed',
+                      style: subtitleStyle,
+                    ),
+                  ],
                 ),
               ),
-              const SizedBox(height: 3),
-              Text(
-                beer.brewery,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: const TextStyle(
-                  color: Color(0xFF9DA4AD),
-                  fontSize: 12,
-                  fontWeight: FontWeight.w500,
-                ),
-              ),
+              const Icon(Icons.chevron_right, color: Color(0xFF9DA4AD)),
             ],
           ),
-        ),
-      ],
-    );
-  }
-}
-
-class BeerCanPainter extends CustomPainter {
-  final List<Color> colors;
-
-  const BeerCanPainter(this.colors);
-
-  @override
-  void paint(Canvas canvas, Size size) {
-    final gradient = LinearGradient(
-      begin: Alignment.topCenter,
-      end: Alignment.bottomCenter,
-      colors: colors,
-    );
-
-    final rect = Rect.fromLTWH(0, 0, size.width, size.height);
-    final paint = Paint()..shader = gradient.createShader(rect);
-    canvas.drawRect(rect, paint);
-
-    final shine = Paint()
-      ..color = Colors.white.withValues(alpha: 0.17)
-      ..style = PaintingStyle.fill;
-    canvas.drawRect(Rect.fromLTWH(size.width * 0.22, 0, size.width * 0.12, size.height), shine);
-
-    final accent = Paint()
-      ..color = Colors.black.withValues(alpha: 0.15)
-      ..style = PaintingStyle.fill;
-    canvas.drawRect(Rect.fromLTWH(0, 0, size.width * 0.25, size.height), accent);
-
-    final stripePaint = Paint()
-      ..color = Colors.white.withValues(alpha: 0.14)
-      ..style = PaintingStyle.fill;
-    for (double x = 0; x < size.width; x += size.width / 6) {
-      canvas.drawRect(Rect.fromLTWH(x, 0, 4, size.height), stripePaint);
-    }
-
-    final textPainter = TextPainter(
-      text: const TextSpan(
-        text: 'BEER',
-        style: TextStyle(
-          color: Colors.white,
-          fontSize: 7,
-          fontWeight: FontWeight.w700,
-          letterSpacing: 1.3,
         ),
       ),
-      textAlign: TextAlign.center,
-      textDirection: TextDirection.ltr,
     );
-
-    textPainter.layout();
-    textPainter.paint(canvas, Offset(size.width / 2 - textPainter.width / 2, size.height / 2 - textPainter.height / 2));
   }
-
-  @override
-  bool shouldRepaint(covariant BeerCanPainter oldDelegate) => oldDelegate.colors != colors;
 }
 
 class DashedBorderPainter extends CustomPainter {
@@ -319,7 +499,11 @@ class DashedBorderPainter extends CustomPainter {
     while (distance < totalLength) {
       final endDistance = distance + dashWidth;
       final tangentStart = metrics.getTangentForOffset(distance)!.position;
-      final tangentEnd = metrics.getTangentForOffset(endDistance < totalLength ? endDistance : totalLength)!.position;
+      final tangentEnd = metrics
+          .getTangentForOffset(
+            endDistance < totalLength ? endDistance : totalLength,
+          )!
+          .position;
       canvas.drawLine(tangentStart, tangentEnd, paint);
       distance += dashWidth + dashSpace;
     }

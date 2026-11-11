@@ -87,7 +87,12 @@ class _NavItem extends StatelessWidget {
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
-          SvgPicture.asset(asset, width: 24, height: 24),
+          SvgPicture.asset(
+            asset,
+            width: 24,
+            height: 24,
+            colorFilter: ColorFilter.mode(active ? lightblueClr : greyClr, BlendMode.srcIn),
+          ),
           Text(label, style: subtitleStyle.copyWith(color: active ? lightblueClr : greyClr, fontSize: 12.sp)),
         ],
       ),

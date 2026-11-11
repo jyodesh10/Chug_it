@@ -16,7 +16,7 @@ void main() {
 
     expect(find.text('Discover'), findsOneWidget);
     expect(find.text('Trending Beers'), findsOneWidget);
-    expect(find.text('Recently Activity'), findsOneWidget);
+    expect(find.text('Recent Activity'), findsOneWidget);
     expect(find.text('Friends'), findsOneWidget);
     expect(find.text('Octoberfest (2026)'), findsOneWidget);
   });

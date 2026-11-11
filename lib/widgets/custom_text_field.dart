@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:jhyapp/constants/textstyle.dart';
 
 class CustomTextField extends StatelessWidget {
   final String? label;
@@ -13,6 +14,7 @@ class CustomTextField extends StatelessWidget {
   final String? suffixText;
   final VoidCallback? onTap;
   final ValueChanged<String>? onChanged;
+  final FormFieldValidator<String>? validator;
   final EdgeInsetsGeometry? contentPadding;
   final TextStyle? labelStyle;
 
@@ -30,19 +32,17 @@ class CustomTextField extends StatelessWidget {
     this.suffixText,
     this.onTap,
     this.onChanged,
+    this.validator,
     this.contentPadding,
     this.labelStyle,
   });
 
   @override
   Widget build(BuildContext context) {
-    final resolvedLabelStyle = labelStyle ??
-        const TextStyle(
-          fontSize: 16,
-          fontWeight: FontWeight.w500,
-          color: Color(0xFFF3F5F7),
-          letterSpacing: -0.2,
-        );
+    final resolvedLabelStyle = labelStyle ?? titleStyle.copyWith(
+      fontWeight: FontWeight.w500,
+      letterSpacing: -0.2,
+    );
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -51,7 +51,7 @@ class CustomTextField extends StatelessWidget {
           Text(label!, style: resolvedLabelStyle),
           const SizedBox(height: 10),
         ],
-        TextField(
+        TextFormField(
           controller: controller,
           keyboardType: keyboardType,
           readOnly: readOnly,
@@ -59,30 +59,26 @@ class CustomTextField extends StatelessWidget {
           maxLines: maxLines ?? 1,
           onTap: onTap,
           onChanged: onChanged,
-          style: const TextStyle(
-            color: Color(0xFFF3F5F7),
-            fontSize: 18,
+          validator: validator,
+          style: titleStyle.copyWith(
             fontWeight: FontWeight.w500,
             letterSpacing: -0.2,
           ),
           decoration: InputDecoration(
             hintText: hintText,
-            hintStyle: const TextStyle(
-              color: Color(0xFF8E939A),
-              fontSize: 18,
+            hintStyle: subtitleStyle.copyWith(
               fontWeight: FontWeight.w500,
+              color: const Color(0xFF8E939A),
             ),
             prefixText: prefixText,
-            prefixStyle: const TextStyle(
-              color: Color(0xFFF3F5F7),
-              fontSize: 18,
+            prefixStyle: titleStyle.copyWith(
               fontWeight: FontWeight.w500,
+              letterSpacing: -0.2,
             ),
             suffixText: suffixText,
-            suffixStyle: const TextStyle(
-              color: Color(0xFFF3F5F7),
-              fontSize: 18,
+            suffixStyle: titleStyle.copyWith(
               fontWeight: FontWeight.w500,
+              letterSpacing: -0.2,
             ),
             filled: true,
             fillColor: const Color(0xFF1F2227),

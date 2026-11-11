@@ -1,24 +1,189 @@
+import 'dart:typed_data';
+
 import 'package:flutter/material.dart';
+import 'package:go_router/go_router.dart';
+import 'package:image_picker/image_picker.dart';
+import 'package:jhyapp/app/app_routes.dart';
+import 'package:jhyapp/constants/textstyle.dart';
+import 'package:jhyapp/models/drink_draft.dart';
+import 'package:jhyapp/services/drink_service.dart';
 import 'package:jhyapp/widgets/custom_text_field.dart';
+import 'package:jhyapp/widgets/primary_button.dart';
 import 'package:jhyapp/widgets/selection_chip.dart';
 import 'package:jhyapp/widgets/star_rating_selector.dart';
 
 class ReviewDrinkView extends StatefulWidget {
-  const ReviewDrinkView({super.key});
+  final DrinkDraft? draft;
+
+  const ReviewDrinkView({super.key, this.draft});
 
   @override
   State<ReviewDrinkView> createState() => _ReviewDrinkViewState();
 }
 
 class _ReviewDrinkViewState extends State<ReviewDrinkView> {
+  final GlobalKey<FormState> _formKey = GlobalKey<FormState>();
   final TextEditingController _notesController = TextEditingController();
+  final TextEditingController _locationController = TextEditingController();
+  final ImagePicker _imagePicker = ImagePicker();
+  late final DrinkDraft _draft;
+  late final List<String> _flavourNotes;
+  Uint8List? _photoBytes;
+  String? _photoMimeType;
+  bool _isSubmitting = false;
+  bool _isPickingPhoto = false;
   int _rating = 4;
-  final List<String> _flavourNotes = ['Citrus', 'Hazy', 'Hazy', 'Hazy', 'Hazy'];
-  final List<String> _selectedFlavours = ['Hazy'];
+  final List<String> _selectedFlavours = [];
+
+  @override
+  void initState() {
+    super.initState();
+    _draft = widget.draft ?? DrinkDraft.empty();
+    _notesController.text = _draft.notes;
+    _locationController.text = _draft.location;
+    _rating = _draft.rating;
+    _flavourNotes = switch (_draft.type.toLowerCase()) {
+      'wine' => const [
+        'Fruity',
+        'Berry',
+        'Citrus',
+        'Floral',
+        'Oak',
+        'Vanilla',
+        'Earthy',
+        'Dry',
+        'Sweet',
+        'Tannic',
+      ],
+      'spirit' => const [
+        'Vanilla',
+        'Oak',
+        'Caramel',
+        'Spicy',
+        'Smoky',
+        'Fruity',
+        'Honey',
+        'Citrus',
+        'Floral',
+        'Nutty',
+      ],
+      _ => const [
+        'Hoppy',
+        'Malt',
+        'Bitter',
+        'Citrus',
+        'Tropical fruit',
+        'Floral',
+        'Pine',
+        'Roasted',
+        'Caramel',
+        'Crisp',
+      ],
+    };
+    _selectedFlavours.addAll(_draft.flavourNotes);
+  }
+
+  Future<void> _pickPhoto() async {
+    if (_isPickingPhoto || _isSubmitting) return;
+    final source = await showModalBottomSheet<ImageSource>(
+      context: context,
+      backgroundColor: const Color(0xFF1F2227),
+      builder: (context) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            ListTile(
+              leading: const Icon(Icons.photo_library_outlined),
+              title: const Text('Choose from gallery'),
+              onTap: () => Navigator.pop(context, ImageSource.gallery),
+            ),
+            ListTile(
+              leading: const Icon(Icons.photo_camera_outlined),
+              title: const Text('Take a photo'),
+              onTap: () => Navigator.pop(context, ImageSource.camera),
+            ),
+          ],
+        ),
+      ),
+    );
+    if (source == null || !mounted) return;
+
+    setState(() => _isPickingPhoto = true);
+    try {
+      final photo = await _imagePicker.pickImage(
+        source: source,
+        maxWidth: 1200,
+        maxHeight: 1200,
+        imageQuality: 55,
+      );
+      if (photo == null) return;
+
+      final photoBytes = await photo.readAsBytes();
+      if (!mounted) return;
+      if (photoBytes.length > 2 * 1024 * 1024) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Compressed photo must be 2 MB or smaller')),
+        );
+        return;
+      }
+
+      setState(() {
+        _photoBytes = photoBytes;
+        _photoMimeType = photo.mimeType;
+      });
+    } catch (error) {
+      if (!mounted) return;
+
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('Unable to select photo: $error')));
+    } finally {
+      if (mounted) setState(() => _isPickingPhoto = false);
+    }
+  }
+
+  Future<void> _submitReview() async {
+    if (_isSubmitting || !(_formKey.currentState?.validate() ?? false)) return;
+    setState(() => _isSubmitting = true);
+
+    final payload = _draft.copyWith(
+      notes: _notesController.text.trim(),
+      rating: _rating,
+      flavourNotes: _selectedFlavours,
+      location: _locationController.text.trim(),
+    );
+
+    try {
+      await DrinkService.addDrink(
+        payload,
+        photoBytes: _photoBytes,
+        photoMimeType: _photoMimeType,
+      );
+      if (!mounted) return;
+
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('Drink saved to Supabase')));
+      context.go(AppRoutes.home);
+    } catch (error) {
+      if (!mounted) return;
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(error.toString().replaceFirst('Exception: ', '')),
+        ),
+      );
+    } finally {
+      if (mounted) {
+        setState(() => _isSubmitting = false);
+      }
+    }
+  }
 
   @override
   void dispose() {
     _notesController.dispose();
+    _locationController.dispose();
     super.dispose();
   }
 
@@ -32,47 +197,44 @@ class _ReviewDrinkViewState extends State<ReviewDrinkView> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              const Text(
-                'Carlsberg Group',
-                style: TextStyle(
-                  color: Color(0xFF8E939A),
-                  fontSize: 17,
-                  fontWeight: FontWeight.w500,
+              Text(
+                _draft.brand.isNotEmpty ? _draft.brand : 'Carlsberg Group',
+                style: subtitleStyle.copyWith(color: const Color(0xFF8E939A)),
+              ),
+              const SizedBox(height: 6),
+              Text(
+                _draft.name.isNotEmpty ? _draft.name : 'Tuborg',
+                style: headingStyle.copyWith(
+                  fontWeight: FontWeight.w700,
+                  letterSpacing: -0.5,
                 ),
               ),
               const SizedBox(height: 6),
-              const Text(
-                'Tuborg',
-                style: TextStyle(
-                  color: Color(0xFFF3F5F7),
-                  fontSize: 32,
-                  fontWeight: FontWeight.w800,
-                  letterSpacing: -0.8,
-                ),
+              Text(
+                '${_draft.type[0].toUpperCase()}${_draft.type.substring(1)}'
+                ' · ${_draft.category}',
+                style: subtitleStyle,
+              ),
+              const SizedBox(height: 4),
+              Text(
+                '${_draft.abv}% ABV · ${_draft.volume} · Qty ${_draft.quantity}'
+                '${_draft.price == null ? '' : ' · \$${_draft.price!.toStringAsFixed(2)}'}',
+                style: subtitleStyle,
+              ),
+              const SizedBox(height: 4),
+              Text(
+                'Drank on ${_draft.date.toIso8601String().split('T').first}',
+                style: subtitleStyle,
               ),
               const SizedBox(height: 26),
-              const Text(
-                'Your rating',
-                style: TextStyle(
-                  color: Color(0xFFF3F5F7),
-                  fontSize: 20,
-                  fontWeight: FontWeight.w700,
-                ),
-              ),
+              Text('Your rating', style: titleStyle),
               const SizedBox(height: 14),
               StarRatingSelector(
                 rating: _rating,
                 onChanged: (value) => setState(() => _rating = value),
               ),
               const SizedBox(height: 22),
-              const Text(
-                'Favour notes',
-                style: TextStyle(
-                  color: Color(0xFFF3F5F7),
-                  fontSize: 20,
-                  fontWeight: FontWeight.w700,
-                ),
-              ),
+              Text('Favour notes', style: titleStyle),
               const SizedBox(height: 12),
               Wrap(
                 spacing: 10,
@@ -95,86 +257,62 @@ class _ReviewDrinkViewState extends State<ReviewDrinkView> {
                 }).toList(),
               ),
               const SizedBox(height: 24),
-              const Text(
-                'Where',
-                style: TextStyle(
-                  color: Color(0xFFF3F5F7),
-                  fontSize: 20,
-                  fontWeight: FontWeight.w700,
-                ),
-              ),
-              const SizedBox(height: 12),
-              Row(
-                children: [
-                  const Icon(
-                    Icons.location_on_outlined,
-                    color: Color(0xFF7DB5FF),
-                    size: 26,
-                  ),
-                  const SizedBox(width: 8),
-                  const Text(
-                    'Home',
-                    style: TextStyle(
-                      color: Color(0xFFF3F5F7),
-                      fontSize: 18,
-                      fontWeight: FontWeight.w600,
+              Form(
+                key: _formKey,
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    CustomTextField(
+                      label: 'Where',
+                      hintText: 'e.g. Home',
+                      controller: _locationController,
+                      validator: (value) {
+                        final location = value?.trim() ?? '';
+                        if (location.isEmpty) return 'Location is required';
+                        if (location.length > 100) {
+                          return 'Location must be 100 characters or fewer';
+                        }
+                        return null;
+                      },
                     ),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 24),
-              const Text(
-                'Notes',
-                style: TextStyle(
-                  color: Color(0xFFF3F5F7),
-                  fontSize: 20,
-                  fontWeight: FontWeight.w700,
+                    const SizedBox(height: 24),
+                    CustomTextField(
+                      label: 'Notes (optional)',
+                      hintText: 'How was it?',
+                      controller: _notesController,
+                      maxLines: 3,
+                      minLines: 3,
+                      contentPadding: const EdgeInsets.symmetric(
+                        horizontal: 16,
+                        vertical: 14,
+                      ),
+                      validator: (value) {
+                        if ((value?.length ?? 0) > 1000) {
+                          return 'Notes must be 1,000 characters or fewer';
+                        }
+                        return null;
+                      },
+                    ),
+                  ],
                 ),
-              ),
-              const SizedBox(height: 12),
-              CustomTextField(
-                label: '',
-                hintText: 'How was it ?',
-                controller: _notesController,
-                maxLines: 3,
-                minLines: 3,
-                contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
               ),
               const SizedBox(height: 18),
-              const Text(
-                'Add a photo',
-                style: TextStyle(
-                  color: Color(0xFFF3F5F7),
-                  fontSize: 18,
-                  fontWeight: FontWeight.w600,
-                ),
-              ),
+              Text('Add a photo', style: titleStyle),
               const SizedBox(height: 14),
               DottedUploadBox(
-                onTap: () {},
+                imageBytes: _photoBytes,
+                onTap: _isPickingPhoto || _isSubmitting ? null : _pickPhoto,
+                onRemove: () {
+                  setState(() {
+                    _photoBytes = null;
+                    _photoMimeType = null;
+                  });
+                },
               ),
               const SizedBox(height: 28),
-              SizedBox(
-                width: double.infinity,
-                child: ElevatedButton(
-                  onPressed: () {},
-                  style: ElevatedButton.styleFrom(
-                    minimumSize: const Size.fromHeight(54),
-                    backgroundColor: const Color(0xFFE5E7EA),
-                    foregroundColor: const Color(0xFF171A1D),
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(14),
-                    ),
-                    elevation: 0,
-                  ),
-                  child: const Text(
-                    'Post review',
-                    style: TextStyle(
-                      fontSize: 18,
-                      fontWeight: FontWeight.w700,
-                    ),
-                  ),
-                ),
+              PrimaryButton(
+                label: _isSubmitting ? 'Posting...' : 'Post review',
+                onPressed: _isSubmitting ? null : _submitReview,
               ),
             ],
           ),
@@ -185,9 +323,16 @@ class _ReviewDrinkViewState extends State<ReviewDrinkView> {
 }
 
 class DottedUploadBox extends StatelessWidget {
-  final VoidCallback onTap;
+  final Uint8List? imageBytes;
+  final VoidCallback? onTap;
+  final VoidCallback onRemove;
 
-  const DottedUploadBox({super.key, required this.onTap});
+  const DottedUploadBox({
+    super.key,
+    required this.imageBytes,
+    required this.onTap,
+    required this.onRemove,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -208,16 +353,40 @@ class DottedUploadBox extends StatelessWidget {
         child: Center(
           child: CustomPaint(
             painter: _DashedBorderPainter(),
-            child: const SizedBox(
+            child: SizedBox(
               width: 160,
               height: 120,
-              child: Center(
-                child: Icon(
-                  Icons.camera_alt_outlined,
-                  size: 38,
-                  color: Color(0xFFE7EAEE),
-                ),
-              ),
+              child: imageBytes == null
+                  ? const Center(
+                      child: Icon(
+                        Icons.camera_alt_outlined,
+                        size: 38,
+                        color: Color(0xFFE7EAEE),
+                      ),
+                    )
+                  : Stack(
+                      fit: StackFit.expand,
+                      children: [
+                        ClipRRect(
+                          borderRadius: BorderRadius.circular(14),
+                          child: Image.memory(imageBytes!, fit: BoxFit.cover),
+                        ),
+                        Positioned(
+                          top: 4,
+                          right: 4,
+                          child: IconButton(
+                            onPressed: onRemove,
+                            icon: const Icon(Icons.close),
+                            color: Colors.white,
+                            style: IconButton.styleFrom(
+                              backgroundColor: Colors.black54,
+                              minimumSize: const Size(32, 32),
+                              padding: EdgeInsets.zero,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
             ),
           ),
         ),
@@ -247,7 +416,11 @@ class _DashedBorderPainter extends CustomPainter {
 
     while (distance < metrics.length) {
       final start = metrics.getTangentForOffset(distance)!.position;
-      final end = metrics.getTangentForOffset((distance + dashWidth).clamp(0.0, metrics.length))!.position;
+      final end = metrics
+          .getTangentForOffset(
+            (distance + dashWidth).clamp(0.0, metrics.length),
+          )!
+          .position;
       canvas.drawLine(start, end, paint);
       distance += dashWidth + dashSpace;
     }

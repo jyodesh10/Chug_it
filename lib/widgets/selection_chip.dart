@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:jhyapp/constants/textstyle.dart';
 
 class SelectionChip extends StatelessWidget {
   final String label;
@@ -30,10 +31,8 @@ class SelectionChip extends StatelessWidget {
         ),
         child: Text(
           label,
-          style: TextStyle(
+          style: subtitleStyle.copyWith(
             color: isSelected ? const Color(0xFF171A1D) : const Color(0xFFE7EAEE),
-            fontSize: 14,
-            fontWeight: FontWeight.w600,
           ),
         ),
       ),
